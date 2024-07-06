@@ -3,7 +3,7 @@ use cw1155::{Cw1155ExecuteMsg, Cw1155QueryMsg};
 pub use cw1155::{Cw1155InstantiateMsg, Cw1155MintMsg};
 use cw1155_base::Cw1155Contract;
 use cw2::set_contract_version;
-use cw2981_royalties::msg::Cw2981QueryMsg;
+use cw2981_royalties::msg::QueryMsg as Cw2981QueryMsg;
 use cw2981_royalties::Extension;
 
 mod query;
@@ -26,7 +26,7 @@ pub mod entry {
 
     use cosmwasm_std::{entry_point, to_json_binary};
     use cosmwasm_std::{Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
-    use cw2981_royalties::msg::Cw2981QueryMsg;
+    use cw2981_royalties::msg::QueryMsg as Cw2981QueryMsg;
     use cw2981_royalties::{check_royalties, Metadata};
 
     // This makes a conscious choice on the various generics used by the contract

@@ -5,14 +5,8 @@ mod tests {
         from_json, to_json_binary, Addr, Binary, Empty, Event, OverflowError, Response, StdError,
         Uint128,
     };
+    use cw1155::msg::{Balance, BalancesResponse};
     use cw_ownable::OwnershipError;
-
-    use crate::{Cw1155BaseContract, Cw1155BaseExecuteMsg, Cw1155BaseQueryMsg};
-    use cw1155::{
-        ApprovedForAllResponse, Balance, BalanceResponse, BalancesResponse, Cw1155BatchReceiveMsg,
-        Cw1155ContractError, Cw1155InstantiateMsg, Cw1155MintMsg, Cw1155QueryMsg, Expiration,
-        NumTokensResponse, OwnerToken, TokenAmount, TokenInfoResponse, TokensResponse,
-    };
 
     #[test]
     fn check_transfers() {

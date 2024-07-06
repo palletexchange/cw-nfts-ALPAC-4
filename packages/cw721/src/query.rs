@@ -415,9 +415,3 @@ pub fn humanize_approval(approval: &Approval) -> Approval {
         expires: approval.expires,
     }
 }
-
-/// Shows who can mint these tokens
-#[cw_serde]
-pub struct MinterResponse {
-    pub minter: Option<String>,
-}
