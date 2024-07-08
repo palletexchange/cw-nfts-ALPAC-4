@@ -1,7 +1,7 @@
 use crate::msg::{Balance, TokenApproval};
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, CustomMsg, StdError, StdResult, Storage, Uint128};
-use cw721::state::{CollectionInfo, Cw721Config};
+use cosmwasm_std::{Addr, CustomMsg, Env, StdError, StdResult, Storage, Uint128};
+use cw721::state::CollectionInfo;
 use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
 use cw_utils::Expiration;
 use serde::de::DeserializeOwned;
@@ -16,9 +16,12 @@ pub struct Cw1155Config<
     TCustomResponseMessage,
     // Message passed for updating metadata.
     TMetadataExtensionMsg,
+    // Extension query message.
+    TQueryExtensionMsg,
 > where
     TMetadataExtension: Serialize + DeserializeOwned + Clone,
     TMetadataExtensionMsg: CustomMsg,
+    TQueryExtensionMsg: Serialize + DeserializeOwned + Clone,
 {
     pub collection_info: Item<'a, CollectionInfo>,
     pub supply: Item<'a, Uint128>, // total supply of all tokens
@@ -35,13 +38,21 @@ pub struct Cw1155Config<
 
     pub(crate) _custom_response: PhantomData<TCustomResponseMessage>,
     pub(crate) _custom_execute: PhantomData<TMetadataExtensionMsg>,
+    pub(crate) _custom_query: PhantomData<TQueryExtensionMsg>,
 }
 
-impl<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg> Default
-    for Cw1155Config<'static, TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg>
+impl<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg> Default
+    for Cw1155Config<
+        'static,
+        TMetadataExtension,
+        TCustomResponseMessage,
+        TMetadataExtensionMsg,
+        TQueryExtensionMsg,
+    >
 where
     TMetadataExtension: Serialize + DeserializeOwned + Clone,
     TMetadataExtensionMsg: CustomMsg,
+    TQueryExtensionMsg: Serialize + DeserializeOwned + Clone,
 {
     fn default() -> Self {
         Self::new(
@@ -57,11 +68,18 @@ where
     }
 }
 
-impl<'a, TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg>
-    Cw1155Config<'a, TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg>
+impl<'a, TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>
+    Cw1155Config<
+        'a,
+        TMetadataExtension,
+        TCustomResponseMessage,
+        TMetadataExtensionMsg,
+        TQueryExtensionMsg,
+    >
 where
     TMetadataExtension: Serialize + DeserializeOwned + Clone,
     TMetadataExtensionMsg: CustomMsg,
+    TQueryExtensionMsg: Serialize + DeserializeOwned + Clone,
 {
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -91,6 +109,7 @@ where
             token_approves: Map::new(token_approves_key),
             _custom_execute: PhantomData,
             _custom_response: PhantomData,
+            _custom_query: PhantomData,
         }
     }
 
@@ -135,6 +154,19 @@ where
         })?;
 
         Ok(val)
+    }
+
+    pub fn verify_all_approval(
+        &self,
+        storage: &dyn Storage,
+        env: &Env,
+        owner: &Addr,
+        operator: &Addr,
+    ) -> bool {
+        match self.approves.load(storage, (owner, operator)) {
+            Ok(ex) => !ex.is_expired(&env.block),
+            Err(_) => false,
+        }
     }
 }
 

@@ -1,12 +1,10 @@
 use cosmwasm_std::{
-    Addr, Api, BankMsg, Binary, Coin, CustomMsg, Deps, DepsMut, Empty, Env, Event, MessageInfo,
-    Order, Response, StdResult, Storage, SubMsg, Uint128,
+    Addr, BankMsg, Binary, CustomMsg, DepsMut, Empty, Env, Event, MessageInfo, Order, Response,
+    StdResult, Storage, SubMsg, Uint128,
 };
 use cw2::set_contract_version;
 use cw721::execute::{migrate_version, Cw721Execute};
 use cw721::state::CollectionInfo;
-use cw_ownable::{none_or, Action, Ownership, OwnershipError, OwnershipStore};
-use cw_storage_plus::Item;
 use cw_utils::Expiration;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -31,13 +29,16 @@ pub trait Cw1155Execute<
     TCustomResponseMessage,
     // Message passed for updating metadata.
     TMetadataExtensionMsg,
+    // Extension query message.
+    TQueryExtensionMsg
 >: Cw721Execute<
     TMetadataExtension,
     TCustomResponseMessage,
-    TMetadataExtensionMsg> where
+    TMetadataExtensionMsg,TQueryExtensionMsg> where
     TMetadataExtension: Serialize + DeserializeOwned + Clone,
     TCustomResponseMessage: CustomMsg,
     TMetadataExtensionMsg: CustomMsg,
+    TQueryExtensionMsg: Serialize + DeserializeOwned + Clone,
 {
     fn instantiate(
         &self,
@@ -49,7 +50,7 @@ pub trait Cw1155Execute<
         contract_version: &str,
     ) -> Result<Response<TCustomResponseMessage>, Cw1155ContractError> {
         set_contract_version(deps.storage, contract_name, contract_version)?;
-        let config = Cw1155Config::<Empty, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
         let collection_info = CollectionInfo {
             name: msg.name,
             symbol: msg.symbol,
@@ -92,9 +93,9 @@ pub trait Cw1155Execute<
             }
             Cw1155ExecuteMsg::BurnBatch { from, batch } => self.burn_batch(env, from, batch),
             Cw1155ExecuteMsg::ApproveAll { operator, expires } => {
-                self.approve_all(env, operator, expires)
+                self.approve_all_cw1155(env, operator, expires)
             }
-            Cw1155ExecuteMsg::RevokeAll { operator } => self.revoke_all(env, operator),
+            Cw1155ExecuteMsg::RevokeAll { operator } => self.revoke_all_cw1155(env, operator),
 
             // cw721
             Cw1155ExecuteMsg::Send {
@@ -104,7 +105,7 @@ pub trait Cw1155Execute<
                 amount,
                 msg,
             } => self.send(env, from, to, token_id, amount, msg),
-            Cw1155ExecuteMsg::Mint { recipient, msg } => self.mint(env, recipient, msg),
+            Cw1155ExecuteMsg::Mint { recipient, msg } => self.mint_cw1155(env, recipient, msg),
             Cw1155ExecuteMsg::Burn {
                 from,
                 token_id,
@@ -141,7 +142,7 @@ pub trait Cw1155Execute<
         Ok(response)
     }
 
-    fn mint(
+    fn mint_cw1155(
         &self,
         env: ExecuteEnv,
         recipient: String,
@@ -152,7 +153,7 @@ pub trait Cw1155Execute<
             info,
             env,
         } = env;
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
 
         cw_ownable::assert_owner(deps.storage, &info.sender)?;
 
@@ -197,7 +198,7 @@ pub trait Cw1155Execute<
             info,
             env,
         } = env;
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
 
         cw_ownable::assert_owner(deps.storage, &info.sender)?;
 
@@ -427,7 +428,7 @@ pub trait Cw1155Execute<
         expiration: Option<Expiration>,
     ) -> Result<Response<TCustomResponseMessage>, Cw1155ContractError> {
         let ExecuteEnv { deps, info, env } = env;
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
 
         // reject expired data as invalid
         let expiration = expiration.unwrap_or_default();
@@ -460,14 +461,14 @@ pub trait Cw1155Execute<
         Ok(rsp)
     }
 
-    fn approve_all(
+    fn approve_all_cw1155(
         &self,
         env: ExecuteEnv,
         operator: String,
         expires: Option<Expiration>,
     ) -> Result<Response<TCustomResponseMessage>, Cw1155ContractError> {
         let ExecuteEnv { deps, info, env } = env;
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
 
         // reject expired data as invalid
         let expires = expires.unwrap_or_default();
@@ -497,7 +498,7 @@ pub trait Cw1155Execute<
         amount: Option<Uint128>,
     ) -> Result<Response<TCustomResponseMessage>, Cw1155ContractError> {
         let ExecuteEnv { deps, info, .. } = env;
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
         let operator = deps.api.addr_validate(&operator)?;
 
         // get prev approval amount to get valid revoke amount
@@ -531,13 +532,13 @@ pub trait Cw1155Execute<
         Ok(rsp)
     }
 
-    fn revoke_all(
+    fn revoke_all_cw1155(
         &self,
         env: ExecuteEnv,
         operator: String,
     ) -> Result<Response<TCustomResponseMessage>, Cw1155ContractError> {
         let ExecuteEnv { deps, info, .. } = env;
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
         let operator = deps.api.addr_validate(&operator)?;
 
         config
@@ -565,7 +566,7 @@ pub trait Cw1155Execute<
         to: Option<Addr>,
         tokens: Vec<TokenAmount>,
     ) -> Result<Event, Cw1155ContractError> {
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
         if let Some(from) = &from {
             for TokenAmount { token_id, amount } in tokens.iter() {
                 config.balances.update(
@@ -631,7 +632,7 @@ pub trait Cw1155Execute<
 
                 // decrement tokens if burning
                 if to.is_none() {
-                    self.decrement_tokens(deps.storage, token_id, amount)?;
+                    config.decrement_tokens(deps.storage, token_id, amount)?;
                 }
             }
 
@@ -645,7 +646,7 @@ pub trait Cw1155Execute<
         } else if let Some(to) = &to {
             // mint
             for TokenAmount { token_id, amount } in &tokens {
-                self.increment_tokens(deps.storage, token_id, amount)?;
+                config.increment_tokens(deps.storage, token_id, amount)?;
             }
             MintEvent::new(to, tokens).into()
         } else {
@@ -665,7 +666,7 @@ pub trait Cw1155Execute<
         token_id: &str,
         amount: Uint128,
     ) -> Result<TokenAmount, Cw1155ContractError> {
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
         let operator = &info.sender;
 
         let owner_balance = config
@@ -677,7 +678,7 @@ pub trait Cw1155Execute<
         };
 
         // owner or all operator can execute
-        if owner == operator || self.verify_all_approval(storage, env, owner, operator) {
+        if owner == operator || config.verify_all_approval(storage, env, owner, operator) {
             return Ok(balance_update);
         }
 
@@ -709,20 +710,6 @@ pub trait Cw1155Execute<
             .collect()
     }
 
-    fn verify_all_approval(
-        &self,
-        storage: &dyn Storage,
-        env: &Env,
-        owner: &Addr,
-        operator: &Addr,
-    ) -> bool {
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
-        match config.approves.load(storage, (owner, operator)) {
-            Ok(ex) => !ex.is_expired(&env.block),
-            Err(_) => false,
-        }
-    }
-
     fn get_active_token_approval(
         &self,
         storage: &dyn Storage,
@@ -731,7 +718,7 @@ pub trait Cw1155Execute<
         operator: &Addr,
         token_id: &str,
     ) -> Option<TokenApproval> {
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
         match config
             .token_approves
             .load(storage, (token_id, owner, operator))

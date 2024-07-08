@@ -1,17 +1,17 @@
-use cosmwasm_std::{to_json_binary, Addr, Binary, Deps, Env, Order, StdResult, Storage, Uint128};
+use cosmwasm_std::{to_json_binary, Addr, Binary, CustomMsg, Deps, Env, Order, StdResult, Uint128};
+use cw721::msg::TokensResponse;
 use cw721::query::Cw721Query;
 use cw721::Approval;
 use cw_storage_plus::Bound;
 use cw_utils::{maybe_addr, Expiration};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::io::Empty;
 
 use crate::msg::{
     ApprovedForAllResponse, Balance, BalanceResponse, BalancesResponse, Cw1155QueryMsg,
-    IsApprovedForAllResponse, OwnerToken, TokenInfoResponse,
+    IsApprovedForAllResponse, OwnerToken,
 };
-use crate::msg::{NumTokensResponse, TokensResponse};
+use crate::msg::{NumTokensResponse, TokenInfoResponse};
 use crate::state::Cw1155Config;
 
 pub const DEFAULT_LIMIT: u32 = 10;
@@ -20,21 +20,30 @@ pub const MAX_LIMIT: u32 = 1000;
 pub trait Cw1155Query<
     // Metadata defined in NftInfo.
     TMetadataExtension,
->: Cw721Query<TMetadataExtension> where
+    // Defines for `CosmosMsg::Custom<T>` in response. Barely used, so `Empty` can be used.
+    TCustomResponseMessage,
+    // Message passed for updating metadata.
+    TMetadataExtensionMsg,
+    // Extension query message.
+    TQueryExtensionMsg
+>: Cw721Query<TMetadataExtension,TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg> where
     TMetadataExtension: Serialize + DeserializeOwned + Clone,
+    TCustomResponseMessage: CustomMsg,
+    TMetadataExtensionMsg: CustomMsg,
+    TQueryExtensionMsg: Serialize + DeserializeOwned + Clone,
 {
     fn query(
         &self,
         deps: Deps,
         env: Env,
-        msg: Cw1155QueryMsg<TMetadataExtension>,
+        msg: Cw1155QueryMsg<TMetadataExtension, TQueryExtensionMsg>,
     ) -> StdResult<Binary> {
         match msg {
             Cw1155QueryMsg::Minter {} => {
                 to_json_binary(&self.query_minter(deps.storage)?)
             }
             Cw1155QueryMsg::BalanceOf(OwnerToken { owner, token_id }) => {
-                let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+                let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
                 let owner_addr = deps.api.addr_validate(&owner)?;
                 let balance = config
                     .balances
@@ -54,7 +63,7 @@ pub trait Cw1155Query<
                 limit,
             } => to_json_binary(&self.query_all_balances(deps, token_id, start_after, limit)?),
             Cw1155QueryMsg::BalanceOfBatch(batch) => {
-                let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+                let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
                 let balances = batch
                     .into_iter()
                     .map(|OwnerToken { owner, token_id }| {
@@ -75,7 +84,7 @@ pub trait Cw1155Query<
                 token_id,
                 include_expired,
             } => {
-                let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+                let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
                 let owner = deps.api.addr_validate(&owner)?;
                 let approvals = config
                     .token_approves
@@ -110,14 +119,15 @@ pub trait Cw1155Query<
                 )?)
             }
             Cw1155QueryMsg::IsApprovedForAll { owner, operator } => {
+                let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
                 let owner_addr = deps.api.addr_validate(&owner)?;
                 let operator_addr = deps.api.addr_validate(&operator)?;
                 let approved =
-                    self.verify_all_approval(deps.storage, &env, &owner_addr, &operator_addr);
+                    config.verify_all_approval(deps.storage, &env, &owner_addr, &operator_addr);
                 to_json_binary(&IsApprovedForAllResponse { approved })
             }
             Cw1155QueryMsg::TokenInfo { token_id } => {
-                let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+                let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
                 let token_info = config.tokens.load(deps.storage, &token_id)?;
                 to_json_binary(&TokenInfoResponse::<TMetadataExtension> {
                     token_uri: token_info.token_uri,
@@ -136,7 +146,7 @@ pub trait Cw1155Query<
                 to_json_binary(&self.query_collection_info(deps, env)?)
             }
             Cw1155QueryMsg::NumTokens { token_id } => {
-                let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+                let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
                 let count = if let Some(token_id) = token_id {
                     config.token_count(deps.storage, &token_id)?
                 } else {
@@ -145,14 +155,14 @@ pub trait Cw1155Query<
                 to_json_binary(&NumTokensResponse { count })
             }
             Cw1155QueryMsg::AllTokens { start_after, limit } => {
-                to_json_binary(&self.query_all_tokens(deps, start_after, limit)?)
+                to_json_binary(&self.query_all_tokens_cw1155(deps, start_after, limit)?)
             }
             Cw1155QueryMsg::Ownership {} => {
                 to_json_binary(&cw_ownable::get_ownership(deps.storage)?)
             }
 
-            Cw1155QueryMsg::Extension { .. } => {
-                self.query_extension(deps, env, msg)
+            Cw1155QueryMsg::Extension { msg: ext_msg, .. } => {
+                self.query_extension(deps, env, ext_msg)
             }
         }
     }
@@ -166,7 +176,7 @@ pub trait Cw1155Query<
         start_after: Option<Addr>,
         limit: Option<u32>,
     ) -> StdResult<ApprovedForAllResponse> {
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
         let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
         let start = start_after.as_ref().map(Bound::exclusive);
 
@@ -190,7 +200,7 @@ pub trait Cw1155Query<
         start_after: Option<String>,
         limit: Option<u32>,
     ) -> StdResult<TokensResponse> {
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
         let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
         let start = start_after.as_ref().map(|s| Bound::exclusive(s.as_str()));
 
@@ -203,13 +213,13 @@ pub trait Cw1155Query<
         Ok(TokensResponse { tokens })
     }
 
-    fn query_all_tokens(
+    fn query_all_tokens_cw1155(
         &self,
         deps: Deps,
         start_after: Option<String>,
         limit: Option<u32>,
     ) -> StdResult<TokensResponse> {
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
         let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
         let start = start_after.as_ref().map(|s| Bound::exclusive(s.as_str()));
         let tokens = config
@@ -227,7 +237,7 @@ pub trait Cw1155Query<
         start_after: Option<String>,
         limit: Option<u32>,
     ) -> StdResult<BalancesResponse> {
-        let config = Cw1155Config::<TMetadataExtension, Empty, Empty>::default();
+        let config = Cw1155Config::<TMetadataExtension, TCustomResponseMessage, TMetadataExtensionMsg, TQueryExtensionMsg>::default();
         let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
 
         let start = if let Some(start_after) = start_after {

@@ -377,20 +377,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cw1155-metadata-onchain"
-version = "0.19.0"
-dependencies = [
- "cosmwasm-schema",
- "cosmwasm-std",
- "cw1155",
- "cw1155-base",
- "cw2 1.1.2",
- "schemars",
- "serde",
- "thiserror",
-]
-
-[[package]]
 name = "cw1155-royalties"
 version = "0.19.0"
 dependencies = [

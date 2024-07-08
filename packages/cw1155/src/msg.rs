@@ -5,7 +5,6 @@ use cosmwasm_std::{Addr, Binary, Env, Uint128};
 use cw721::Approval;
 use cw_ownable::{cw_ownable_execute, cw_ownable_query};
 use cw_utils::Expiration;
-use schemars::JsonSchema;
 
 #[cw_serde]
 pub struct Cw1155InstantiateMsg {
@@ -108,7 +107,7 @@ pub enum Cw1155ExecuteMsg<TMetadataExtension, TMetadataExtensionMsg> {
 #[cw_ownable_query]
 #[cw_serde]
 #[derive(QueryResponses)]
-pub enum Cw1155QueryMsg<TMetadataExtension> {
+pub enum Cw1155QueryMsg<TMetadataExtension, TQueryExtensionMsg> {
     // cw1155
     /// Returns the current balance of the given account, 0 if unset.
     #[returns(BalanceResponse)]
@@ -162,7 +161,7 @@ pub enum Cw1155QueryMsg<TMetadataExtension> {
     TokenInfo { token_id: String },
     /// With Enumerable extension.
     /// Returns all tokens owned by the given address, [] if unset.
-    #[returns(TokensResponse)]
+    #[returns(cw721::msg::TokensResponse)]
     Tokens {
         owner: String,
         start_after: Option<String>,
@@ -170,7 +169,7 @@ pub enum Cw1155QueryMsg<TMetadataExtension> {
     },
     /// With Enumerable extension.
     /// Requires pagination. Lists all token_ids controlled by the contract.
-    #[returns(TokensResponse)]
+    #[returns(cw721::msg::TokensResponse)]
     AllTokens {
         start_after: Option<String>,
         limit: Option<u32>,
@@ -178,7 +177,10 @@ pub enum Cw1155QueryMsg<TMetadataExtension> {
 
     /// Extension query
     #[returns(())]
-    Extension { msg: TMetadataExtension },
+    Extension {
+        msg: TQueryExtensionMsg,
+        phantom: Option<TMetadataExtension>, // dummy field to infer type
+    },
 }
 
 #[cw_serde]
@@ -218,14 +220,6 @@ pub struct TokenInfoResponse<T> {
     pub token_uri: Option<String>,
     /// You can add any custom metadata here when you extend cw1155-base
     pub extension: T,
-}
-
-#[cw_serde]
-pub struct TokensResponse {
-    /// Contains all token_ids in lexicographical ordering
-    /// If there are more than `limit`, use `start_from` in future queries
-    /// to achieve pagination.
-    pub tokens: Vec<String>,
 }
 
 #[cw_serde]
