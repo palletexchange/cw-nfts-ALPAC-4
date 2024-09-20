@@ -88,8 +88,8 @@ pub enum Cw1155ExecuteMsg<TMetadataExtension, TMetadataExtensionMsg> {
     Approve {
         spender: String,
         token_id: String,
-        /// Optional amount to approve. If None, approve entire balance.
-        amount: Option<Uint128>,
+        /// Amount to approve
+        amount: Uint128,
         expires: Option<Expiration>,
     },
     /// Remove previously granted Approval

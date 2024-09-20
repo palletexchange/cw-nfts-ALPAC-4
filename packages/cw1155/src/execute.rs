@@ -442,7 +442,7 @@ pub trait Cw1155Execute<
         env: ExecuteEnv,
         operator: String,
         token_id: String,
-        amount: Option<Uint128>,
+        approval_amount: Uint128,
         expiration: Option<Expiration>,
     ) -> Result<Response<TCustomResponseMessage>, Cw1155ContractError> {
         let ExecuteEnv { deps, info, env } = env;
@@ -459,19 +459,9 @@ pub trait Cw1155Execute<
             return Err(Cw1155ContractError::Expired {});
         }
 
-        // get sender's token balance to get valid approval amount
-        let balance = config
-            .balances
-            .load(deps.storage, (info.sender.clone(), token_id.to_string()))?;
-        let approval_amount = amount.unwrap_or(balance.amount);
+        // validate approval amount
         if approval_amount.is_zero() {
             return Err(Cw1155ContractError::InvalidZeroAmount {});
-        }
-        if approval_amount > balance.amount {
-            return Err(Cw1155ContractError::NotEnoughTokens {
-                available: balance.amount,
-                requested: approval_amount,
-            });
         }
 
         // store the approval
