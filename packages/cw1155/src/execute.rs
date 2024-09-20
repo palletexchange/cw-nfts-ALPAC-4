@@ -1,5 +1,5 @@
 use cosmwasm_std::{
-    Addr, Attribute, BankMsg, Binary, CustomMsg, DepsMut, Empty, Env, MessageInfo, Order, Response,
+    Addr, Attribute, BankMsg, Binary, CustomMsg, DepsMut, Empty, Env, MessageInfo, Response,
     StdResult, Storage, SubMsg, Uint128,
 };
 use cw2::set_contract_version;
@@ -97,9 +97,9 @@ pub trait Cw1155Execute<
             }
             Cw1155ExecuteMsg::BurnBatch { from, batch } => self.burn_batch(env, from, batch),
             Cw1155ExecuteMsg::ApproveAll { operator, expires } => {
-                self.approve_all_cw1155(env, operator, expires)
+                self.approve_all(env, operator, expires)
             }
-            Cw1155ExecuteMsg::RevokeAll { operator } => self.revoke_all_cw1155(env, operator),
+            Cw1155ExecuteMsg::RevokeAll { operator } => self.revoke_all(env, operator),
 
             // cw721
             Cw1155ExecuteMsg::Send {
@@ -109,7 +109,7 @@ pub trait Cw1155Execute<
                 amount,
                 msg,
             } => self.send(env, from, to, token_id, amount, msg),
-            Cw1155ExecuteMsg::Mint { recipient, msg } => self.mint_cw1155(env, recipient, msg),
+            Cw1155ExecuteMsg::Mint { recipient, msg } => self.mint(env, recipient, msg),
             Cw1155ExecuteMsg::Burn {
                 from,
                 token_id,
@@ -146,7 +146,7 @@ pub trait Cw1155Execute<
         Ok(response)
     }
 
-    fn mint_cw1155(
+    fn mint(
         &self,
         env: ExecuteEnv,
         recipient: String,
@@ -463,7 +463,16 @@ pub trait Cw1155Execute<
         let balance = config
             .balances
             .load(deps.storage, (info.sender.clone(), token_id.to_string()))?;
-        let approval_amount = amount.unwrap_or(Uint128::MAX).min(balance.amount);
+        let approval_amount = amount.unwrap_or(balance.amount);
+        if approval_amount.is_zero() {
+            return Err(Cw1155ContractError::InvalidZeroAmount {});
+        }
+        if approval_amount > balance.amount {
+            return Err(Cw1155ContractError::NotEnoughTokens {
+                available: balance.amount,
+                requested: approval_amount,
+            });
+        }
 
         // store the approval
         let operator = deps.api.addr_validate(&operator)?;
@@ -484,7 +493,7 @@ pub trait Cw1155Execute<
         Ok(rsp)
     }
 
-    fn approve_all_cw1155(
+    fn approve_all(
         &self,
         env: ExecuteEnv,
         operator: String,
@@ -565,7 +574,7 @@ pub trait Cw1155Execute<
         Ok(rsp)
     }
 
-    fn revoke_all_cw1155(
+    fn revoke_all(
         &self,
         env: ExecuteEnv,
         operator: String,
@@ -659,26 +668,24 @@ pub trait Cw1155Execute<
                 if amount.is_zero() {
                     return Err(Cw1155ContractError::InvalidZeroAmount {});
                 }
-                // remove token approvals
-                for (operator, approval) in config
-                    .token_approves
-                    .prefix((token_id, from))
-                    .range(deps.storage, None, None, Order::Ascending)
-                    .collect::<StdResult<Vec<_>>>()?
-                {
-                    if approval.is_expired(env) || approval.amount <= *amount {
+                // decrement token approvals from operator if different from balance owner
+                if from != &info.sender {
+                    let mut approval = config
+                        .token_approves
+                        .load(deps.storage, (token_id, from, &info.sender))?;
+                    if approval.is_expired(env) {
+                        return Err(Cw1155ContractError::Expired {});
+                    }
+                    if approval.amount <= *amount {
                         config
                             .token_approves
-                            .remove(deps.storage, (token_id, from, &operator));
+                            .remove(deps.storage, (token_id, from, &info.sender));
                     } else {
-                        config.token_approves.update(
+                        approval.amount = approval.amount.checked_sub(*amount)?;
+                        config.token_approves.save(
                             deps.storage,
-                            (token_id, from, &operator),
-                            |prev| -> StdResult<_> {
-                                let mut new_approval = prev.unwrap();
-                                new_approval.amount = new_approval.amount.checked_sub(*amount)?;
-                                Ok(new_approval)
-                            },
+                            (token_id, from, &info.sender),
+                            &approval,
                         )?;
                     }
                 }
@@ -735,11 +742,12 @@ pub trait Cw1155Execute<
             amount,
         };
 
+        let owner_balance = config
+            .balances
+            .load(storage, (owner.clone(), token_id.to_string()))?;
+
         // owner or all operator can execute
         if owner == operator || config.verify_all_approval(storage, env, owner, operator) {
-            let owner_balance = config
-                .balances
-                .load(storage, (owner.clone(), token_id.to_string()))?;
             if owner_balance.amount < amount {
                 return Err(Cw1155ContractError::NotEnoughTokens {
                     available: owner_balance.amount,
@@ -753,9 +761,10 @@ pub trait Cw1155Execute<
         if let Some(token_approval) =
             self.get_active_token_approval(storage, env, owner, operator, token_id)
         {
-            if token_approval.amount < amount {
+            let available_amount = token_approval.amount.min(owner_balance.amount);
+            if available_amount < amount {
                 return Err(Cw1155ContractError::NotEnoughTokens {
-                    available: token_approval.amount,
+                    available: available_amount,
                     requested: amount,
                 });
             }

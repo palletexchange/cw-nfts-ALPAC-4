@@ -226,7 +226,7 @@ pub trait Cw1155Query<
                 to_json_binary(&NumTokensResponse { count })
             }
             Cw1155QueryMsg::AllTokens { start_after, limit } => {
-                to_json_binary(&self.query_all_tokens_cw1155(deps, start_after, limit)?)
+                to_json_binary(&self.query_all_tokens(deps, start_after, limit)?)
             }
             Cw1155QueryMsg::Ownership {} => {
                 to_json_binary(&cw_ownable::get_ownership(deps.storage)?)
@@ -294,7 +294,7 @@ pub trait Cw1155Query<
         Ok(TokensResponse { tokens })
     }
 
-    fn query_all_tokens_cw1155(
+    fn query_all_tokens(
         &self,
         deps: Deps,
         start_after: Option<String>,
