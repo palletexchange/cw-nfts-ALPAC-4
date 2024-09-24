@@ -140,9 +140,9 @@ pub trait Cw1155Query<
                     .prefix((&token_id, &owner))
                     .range(deps.storage, None, None, Order::Ascending)
                     .filter_map(|approval| {
-                        let (_, approval) = approval.unwrap();
+                        let (operator, approval) = approval.unwrap();
                         if include_expired.unwrap_or(false) || !approval.is_expired(&env) {
-                            Some(approval)
+                            Some(approval.to_response(&operator))
                         } else {
                             None
                         }

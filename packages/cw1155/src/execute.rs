@@ -1,6 +1,6 @@
 use cosmwasm_std::{
     Addr, Attribute, BankMsg, Binary, CustomMsg, DepsMut, Empty, Env, MessageInfo, Response,
-    StdResult, Storage, SubMsg, Uint128,
+    StdError, StdResult, Storage, SubMsg, Uint128,
 };
 use cw2::set_contract_version;
 use cw721::execute::migrate_version;
@@ -464,6 +464,13 @@ pub trait Cw1155Execute<
             return Err(Cw1155ContractError::InvalidZeroAmount {});
         }
 
+        // verify operator != owner
+        if info.sender == operator {
+            return Err(Cw1155ContractError::Unauthorized {
+                reason: "Operator cannot be the owner".to_string(),
+            });
+        }
+
         // store the approval
         let operator = deps.api.addr_validate(&operator)?;
         config.token_approves.save(
@@ -496,6 +503,12 @@ pub trait Cw1155Execute<
             TMetadataExtensionMsg,
             TQueryExtensionMsg,
         >::default();
+
+        if info.sender == operator {
+            return Err(Cw1155ContractError::Unauthorized {
+                reason: "Operator cannot be the owner".to_string(),
+            });
+        }
 
         // reject expired data as invalid
         let expires = expires.unwrap_or_default();
@@ -662,7 +675,8 @@ pub trait Cw1155Execute<
                 if from != &info.sender {
                     let mut approval = config
                         .token_approves
-                        .load(deps.storage, (token_id, from, &info.sender))?;
+                        .load(deps.storage, (token_id, from, &info.sender))
+                        .unwrap_or_default();
                     if approval.is_expired(env) {
                         return Err(Cw1155ContractError::Expired {});
                     }
@@ -687,6 +701,12 @@ pub trait Cw1155Execute<
             }
 
             if let Some(to) = &to {
+                // verify sender != recipient
+                if from == to {
+                    return Err(Cw1155ContractError::Unauthorized {
+                        reason: "Cannot send to self".to_string(),
+                    });
+                }
                 // transfer
                 TransferEvent::new(info, Some(from.clone()), to, tokens).into_iter()
             } else {
@@ -734,7 +754,12 @@ pub trait Cw1155Execute<
 
         let owner_balance = config
             .balances
-            .load(storage, (owner.clone(), token_id.to_string()))?;
+            .load(storage, (owner.clone(), token_id.to_string()))
+            .unwrap_or_else(|_| Balance {
+                owner: owner.clone(),
+                amount: Uint128::zero(),
+                token_id: token_id.to_string(),
+            });
 
         // owner or all operator can execute
         if owner == operator || config.verify_all_approval(storage, env, owner, operator) {
@@ -761,7 +786,7 @@ pub trait Cw1155Execute<
             return Ok(balance_update);
         }
 
-        Err(Cw1155ContractError::Unauthorized {})
+        Err(StdError::not_found("approval").into())
     }
 
     /// returns valid token amounts if the sender can execute or is approved to execute on all provided tokens

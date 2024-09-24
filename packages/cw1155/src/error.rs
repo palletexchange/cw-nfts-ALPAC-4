@@ -17,8 +17,8 @@ pub enum Cw1155ContractError {
     #[error("OwnershipError: {0}")]
     Ownership(#[from] OwnershipError),
 
-    #[error("Unauthorized")]
-    Unauthorized {},
+    #[error("Unauthorized: {reason}")]
+    Unauthorized { reason: String },
 
     #[error("Expired")]
     Expired {},

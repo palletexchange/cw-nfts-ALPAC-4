@@ -125,7 +125,7 @@ pub enum Cw1155QueryMsg<TMetadataExtension, TQueryExtensionMsg> {
     #[returns(IsApprovedForAllResponse)]
     IsApprovedForAll { owner: String, operator: String },
     /// Return approvals that a token owner has
-    #[returns(Vec<crate::msg::TokenApproval>)]
+    #[returns(Vec<crate::msg::TokenApprovalResponse>)]
     TokenApprovals {
         owner: String,
         token_id: String,
@@ -255,6 +255,7 @@ impl Display for TokenAmount {
 }
 
 #[cw_serde]
+#[derive(Default)]
 pub struct TokenApproval {
     pub amount: Uint128,
     pub expiration: Expiration,
@@ -264,6 +265,19 @@ impl TokenApproval {
     pub fn is_expired(&self, env: &Env) -> bool {
         self.expiration.is_expired(&env.block)
     }
+
+    pub fn to_response(&self, operator: &Addr) -> TokenApprovalResponse {
+        TokenApprovalResponse {
+            operator: operator.clone(),
+            approval: self.clone(),
+        }
+    }
+}
+
+#[cw_serde]
+pub struct TokenApprovalResponse {
+    pub operator: Addr,
+    pub approval: TokenApproval,
 }
 
 #[cw_serde]
