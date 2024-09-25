@@ -12,9 +12,9 @@ use std::vec::IntoIter;
 
 use crate::event::{
     ApproveAllEvent, ApproveEvent, BurnEvent, MintEvent, RevokeAllEvent, RevokeEvent,
-    TransferEvent, UpdateMetadataEvent,
+    TransferEvent, UpdateDefaultUriEvent, UpdateMetadataBatchEvent, UpdateMetadataEvent,
 };
-use crate::msg::{Balance, CollectionInfo, Cw1155MintMsg, TokenAmount, TokenApproval};
+use crate::msg::{Balance, CollectionInfo, Cw1155MintMsg, TokenAmount, TokenApproval, TokenUpdate};
 use crate::receiver::Cw1155BatchReceiveMsg;
 use crate::state::TokenInfo;
 use crate::{
@@ -127,6 +127,11 @@ pub trait Cw1155Execute<
                 amount,
             } => self.revoke_token(env, spender, token_id, amount),
             Cw1155ExecuteMsg::UpdateOwnership(action) => Self::update_ownership(env, action),
+            Cw1155ExecuteMsg::UpdateMetadata(update) => self.update_metadata(env, update),
+            Cw1155ExecuteMsg::UpdateMetadataBatch { updates } => {
+                self.update_metadata_batch(env, updates)
+            }
+            Cw1155ExecuteMsg::UpdateDefaultUri { uri } => self.update_default_base_uri(env, uri),
 
             Cw1155ExecuteMsg::Extension { .. } => unimplemented!(),
         }
@@ -845,20 +850,56 @@ pub trait Cw1155Execute<
         Ok(Response::new().add_attributes(ownership.into_attributes()))
     }
 
-    /// Allows creator to update onchain metadata and token uri. This is not available on the base, but the implementation
-    /// is available here for contracts that want to use it.
+    /// Allows creator to update onchain metadata and token uri.
     /// From `update_uri` on ERC-1155.
     fn update_metadata(
         &self,
-        deps: DepsMut,
-        info: MessageInfo,
-        token_id: String,
-        extension: Option<TMetadataExtension>,
-        token_uri: Option<String>,
+        env: ExecuteEnv,
+        update: TokenUpdate<TMetadataExtension>,
     ) -> Result<Response<TCustomResponseMessage>, Cw1155ContractError> {
+        let ExecuteEnv { deps, info, .. } = env;
         cw_ownable::assert_owner(deps.storage, &info.sender)?;
 
-        if extension.is_none() && token_uri.is_none() {
+        let TokenUpdate {
+            token_id,
+            token_uri,
+            metadata,
+        } = update;
+
+        let config = Cw1155Config::<
+            TMetadataExtension,
+            TCustomResponseMessage,
+            TMetadataExtensionMsg,
+            TQueryExtensionMsg,
+        >::default();
+        let token_info = config.tokens.load(deps.storage, &token_id)?;
+
+        config.update_token_metadata(
+            deps.storage,
+            &token_id,
+            token_info.clone(),
+            token_uri,
+            metadata.clone(),
+        )?;
+
+        Ok(Response::new().add_attributes(UpdateMetadataEvent::new(
+            &token_id,
+            token_info.token_uri.clone(),
+            metadata.is_some(),
+        )))
+    }
+
+    /// Allows creator to update onchain metadata and token uri in batches.
+    /// From `update_uri` on ERC-1155.
+    fn update_metadata_batch(
+        &self,
+        env: ExecuteEnv,
+        updates: Vec<TokenUpdate<TMetadataExtension>>,
+    ) -> Result<Response<TCustomResponseMessage>, Cw1155ContractError> {
+        let ExecuteEnv { deps, info, .. } = env;
+        cw_ownable::assert_owner(deps.storage, &info.sender)?;
+
+        if updates.is_empty() {
             return Err(Cw1155ContractError::NoUpdatesRequested {});
         }
 
@@ -868,27 +909,56 @@ pub trait Cw1155Execute<
             TMetadataExtensionMsg,
             TQueryExtensionMsg,
         >::default();
-        let mut token_info = config.tokens.load(deps.storage, &token_id)?;
 
-        // update extension
-        let extension_update = if let Some(extension) = extension {
-            token_info.extension = extension;
-            true
-        } else {
-            false
-        };
+        let events = updates
+            .into_iter()
+            .map(
+                |TokenUpdate {
+                     token_id,
+                     token_uri,
+                     metadata,
+                 }| {
+                    let (token_id, token_info) = config.update_token_metadata(
+                        deps.storage,
+                        &token_id,
+                        TokenInfo {
+                            token_uri: token_uri.clone(),
+                            extension: metadata.clone(),
+                        },
+                        token_uri,
+                        metadata.clone(),
+                    )?;
+                    Ok(UpdateMetadataEvent::new(
+                        &token_id,
+                        token_info.token_uri,
+                        metadata.is_some(),
+                    ))
+                },
+            )
+            .collect::<Result<Vec<_>, Cw1155ContractError>>()?;
 
-        // update token uri
-        token_info.token_uri = token_uri;
+        Ok(Response::new().add_attributes(UpdateMetadataBatchEvent::new(events)))
+    }
 
-        // store token
-        config.tokens.save(deps.storage, &token_id, &token_info)?;
+    /// Allows owner to update the default base uri.
+    /// From `update_uri` on ERC-1155.
+    fn update_default_base_uri(
+        &self,
+        env: ExecuteEnv,
+        uri: Option<String>,
+    ) -> Result<Response<TCustomResponseMessage>, Cw1155ContractError> {
+        let ExecuteEnv { deps, info, .. } = env;
+        cw_ownable::assert_owner(deps.storage, &info.sender)?;
 
-        Ok(Response::new().add_attributes(UpdateMetadataEvent::new(
-            &token_id,
-            &token_info.token_uri.unwrap_or_default(),
-            extension_update,
-        )))
+        let config = Cw1155Config::<
+            TMetadataExtension,
+            TCustomResponseMessage,
+            TMetadataExtensionMsg,
+            TQueryExtensionMsg,
+        >::default();
+        config.default_base_uri.save(deps.storage, &uri)?;
+
+        Ok(Response::new().add_attributes(UpdateDefaultUriEvent { default_uri: uri }))
     }
 }
 

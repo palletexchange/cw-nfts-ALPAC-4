@@ -18,6 +18,10 @@ pub struct Cw1155InstantiateMsg {
     /// contract.
     /// If None, sender is the minter.
     pub minter: Option<String>,
+
+    /// optional default base token uri to prepend to token id for off-chain metadata.
+    /// If Some, this will be used as the base for all tokens without a set uri
+    pub default_uri: Option<String>,
 }
 
 /// This is like Cw1155ExecuteMsg but we add a Mint command for a minter
@@ -98,6 +102,14 @@ pub enum Cw1155ExecuteMsg<TMetadataExtension, TMetadataExtensionMsg> {
         token_id: String,
         /// Optional amount to revoke. If None, revoke entire amount.
         amount: Option<Uint128>,
+    },
+    /// Admin function to update default base token uri
+    UpdateDefaultUri { uri: Option<String> },
+    /// Admin function to update token uri for a batch of tokens
+    UpdateMetadata(TokenUpdate<TMetadataExtension>),
+    /// Admin function to update token uri for a batch of tokens
+    UpdateMetadataBatch {
+        updates: Vec<TokenUpdate<TMetadataExtension>>,
     },
 
     /// Extension msg
@@ -180,6 +192,9 @@ pub enum Cw1155QueryMsg<TMetadataExtension, TQueryExtensionMsg> {
         start_after: Option<String>,
         limit: Option<u32>,
     },
+    /// Default base token uri used for tokens without a set uri
+    #[returns(DefaultBaseUriResponse)]
+    DefaultBaseUri {},
 
     /// Extension query
     #[returns(())]
@@ -225,7 +240,7 @@ pub struct TokenInfoResponse<T> {
     /// Should be a url point to a json file
     pub token_uri: Option<String>,
     /// You can add any custom metadata here when you extend cw1155-base
-    pub extension: T,
+    pub extension: Option<T>,
 }
 
 #[cw_serde]
@@ -238,7 +253,7 @@ pub struct Cw1155MintMsg<T> {
     /// Metadata JSON Schema
     pub token_uri: Option<String>,
     /// Any custom extension used by this contract
-    pub extension: T,
+    pub extension: Option<T>,
 }
 
 #[cw_serde]
@@ -303,4 +318,16 @@ pub struct OwnersOfResponse {
 pub struct CollectionInfo {
     pub name: String,
     pub symbol: String,
+}
+
+#[cw_serde]
+pub struct TokenUpdate<TMetadataExtension> {
+    pub token_id: String,
+    pub token_uri: Option<String>,
+    pub metadata: Option<TMetadataExtension>,
+}
+
+#[cw_serde]
+pub struct DefaultBaseUriResponse {
+    pub uri: String,
 }
