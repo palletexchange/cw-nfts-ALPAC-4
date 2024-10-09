@@ -32,6 +32,9 @@ pub enum Cw1155ContractError {
         requested: Uint128,
     },
 
-    #[error("Must provide either 'token_uri' or 'extension' to update.")]
-    NoUpdatesRequested {},
+    #[error("Must provide tokens to update.")]
+    EmptyUpdateRequest {},
+
+    #[error("No updates requested for token {token_id}. Must provide either 'token_uri' or 'metadata' to update.")]
+    NoUpdatesRequested { token_id: String },
 }

@@ -182,7 +182,9 @@ where
         if metadata.is_none()
             && token_uri.clone().unwrap_or_default() == token_info.token_uri.unwrap_or_default()
         {
-            return Err(Cw1155ContractError::NoUpdatesRequested {});
+            return Err(Cw1155ContractError::NoUpdatesRequested {
+                token_id: token_id.to_string(),
+            });
         }
 
         // update metadata

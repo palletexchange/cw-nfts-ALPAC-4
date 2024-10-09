@@ -238,7 +238,7 @@ pub struct AllTokenInfoResponse<T> {
 #[cw_serde]
 pub struct TokenInfoResponse<T> {
     /// Should be a url point to a json file
-    pub token_uri: Option<String>,
+    pub token_uri: String,
     /// You can add any custom metadata here when you extend cw1155-base
     pub extension: Option<T>,
 }

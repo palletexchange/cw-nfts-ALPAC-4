@@ -12,8 +12,9 @@ mod tests {
     use cw1155::execute::Cw1155Execute;
     use cw1155::msg::{
         ApprovedForAllResponse, Balance, BalanceResponse, BalancesResponse, Cw1155InstantiateMsg,
-        Cw1155MintMsg, Cw1155QueryMsg, IsApprovedForAllResponse, NumTokensResponse, OwnerToken,
-        TokenAmount, TokenApproval, TokenApprovalResponse, TokenInfoResponse,
+        Cw1155MintMsg, Cw1155QueryMsg, DefaultBaseUriResponse, IsApprovedForAllResponse,
+        NumTokensResponse, OwnerToken, TokenAmount, TokenApproval, TokenApprovalResponse,
+        TokenInfoResponse, TokenUpdate,
     };
     use cw1155::query::Cw1155Query;
     use cw1155::receiver::Cw1155BatchReceiveMsg;
@@ -37,6 +38,7 @@ mod tests {
             recipient: &Addr,
             token_id: &str,
             amount: u64,
+            token_uri: Option<String>,
             expected_error: Option<Cw1155ContractError>,
         ) {
             let res = self.app.execute(
@@ -48,7 +50,7 @@ mod tests {
                         msg: Cw1155MintMsg {
                             token_id: token_id.to_string(),
                             amount: amount.into(),
-                            token_uri: None,
+                            token_uri,
                             extension: None,
                         },
                     },
@@ -343,6 +345,100 @@ mod tests {
             }
         }
 
+        pub fn update_default_uri(
+            &mut self,
+            uri: Option<String>,
+            expected_error: Option<Cw1155ContractError>,
+        ) {
+            let res = self.app.execute(
+                self.address_book.creator.clone(),
+                wasm_execute(
+                    &self.address_book.cw1155,
+                    &Cw1155BaseExecuteMsg::UpdateDefaultUri { uri },
+                    vec![],
+                )
+                .unwrap()
+                .into(),
+            );
+
+            if let Some(expected_error) = expected_error {
+                assert!(
+                    res.is_err(),
+                    "update default uri succeeded but expected error: {}",
+                    expected_error.to_string()
+                );
+                res.expect_err(&expected_error.to_string());
+            } else {
+                assert!(res.is_ok(), "error updating default uri: {:?}", res);
+            }
+        }
+
+        pub fn update_token_metadata(
+            &mut self,
+            token_id: &str,
+            token_uri: Option<String>,
+            metadata: Option<String>,
+            expected_error: Option<Cw1155ContractError>,
+        ) {
+            let res = self.app.execute(
+                self.address_book.creator.clone(),
+                wasm_execute(
+                    &self.address_book.cw1155,
+                    &Cw1155BaseExecuteMsg::UpdateMetadata(TokenUpdate {
+                        token_id: token_id.to_string(),
+                        token_uri,
+                        metadata,
+                    }),
+                    vec![],
+                )
+                .unwrap()
+                .into(),
+            );
+
+            if let Some(expected_error) = expected_error {
+                assert!(
+                    res.is_err(),
+                    "update token metadata succeeded but expected error: {}",
+                    expected_error.to_string()
+                );
+                res.expect_err(&expected_error.to_string());
+            } else {
+                assert!(res.is_ok(), "error updating token metadata: {:?}", res);
+            }
+        }
+
+        pub fn update_token_metadata_batch(
+            &mut self,
+            updates: Vec<TokenUpdate<String>>,
+            expected_error: Option<Cw1155ContractError>,
+        ) {
+            let res = self.app.execute(
+                self.address_book.creator.clone(),
+                wasm_execute(
+                    &self.address_book.cw1155,
+                    &Cw1155BaseExecuteMsg::UpdateMetadataBatch { updates },
+                    vec![],
+                )
+                .unwrap()
+                .into(),
+            );
+
+            if let Some(expected_error) = expected_error {
+                assert!(
+                    res.is_err(),
+                    "update token metadata batch succeeded but expected error: {}",
+                    expected_error.to_string()
+                );
+                res.expect_err(&expected_error.to_string());
+            } else {
+                assert!(
+                    res.is_ok(),
+                    "error updating token metadata batch: {:?}",
+                    res
+                );
+            }
+        }
+
         pub fn query_balance_of(&self, owner: &Addr, token_id: &str) -> BalanceResponse {
             self.app
                 .wrap()
@@ -433,6 +529,28 @@ mod tests {
                 )
                 .unwrap()
         }
+
+        pub fn query_token_info(&self, token_id: &str) -> TokenInfoResponse<String> {
+            self.app
+                .wrap()
+                .query_wasm_smart(
+                    &self.address_book.cw1155,
+                    &Cw1155BaseQueryMsg::TokenInfo {
+                        token_id: token_id.to_string(),
+                    },
+                )
+                .unwrap()
+        }
+
+        pub fn query_default_uri(&self) -> DefaultBaseUriResponse {
+            self.app
+                .wrap()
+                .query_wasm_smart(
+                    &self.address_book.cw1155,
+                    &Cw1155BaseQueryMsg::DefaultBaseUri {},
+                )
+                .unwrap()
+        }
     }
 
     #[cw_serde]
@@ -456,7 +574,7 @@ mod tests {
         }
     }
 
-    fn setup() -> TestSuite {
+    fn setup(default_uri: Option<String>) -> TestSuite {
         let mut app = AppBuilder::new().build(|router, _api, storage| {
             // init test accounts with 1_000_000_000 usei (1_000 sei)
             let funds = vec![coin(1_000_000_000, USEI)];
@@ -492,6 +610,7 @@ mod tests {
                     name: "cw1155 base contract".to_string(),
                     symbol: "CW1155".to_string(),
                     minter: None,
+                    default_uri,
                 },
                 &[],
                 "init cw1155",
@@ -524,7 +643,7 @@ mod tests {
         // - user1 burn token1
         // - user1 batch burn token2 and token3
 
-        let mut suite = setup();
+        let mut suite = setup(None);
         let AddressBook {
             creator,
             user1,
@@ -541,11 +660,12 @@ mod tests {
             &user1,
             token1,
             1,
+            None,
             Some(Cw1155ContractError::Ownership(OwnershipError::NotOwner)),
         );
 
         // valid mint
-        suite.mint(None, &user1, token1, 1, None);
+        suite.mint(None, &user1, token1, 1, None, None);
 
         // verify supply
 
@@ -601,8 +721,8 @@ mod tests {
         );
 
         // mint token2 and token3
-        suite.mint(None, &user2, token2, 1, None);
-        suite.mint(None, &user2, token3, 1, None);
+        suite.mint(None, &user2, token2, 1, None, None);
+        suite.mint(None, &user2, token3, 1, None, None);
 
         // verify supply
         assert_eq!(
@@ -844,6 +964,7 @@ mod tests {
             name: "name".to_string(),
             symbol: "symbol".to_string(),
             minter: Some(minter.to_string()),
+            default_uri: None,
         };
         let res = contract
             .instantiate(
@@ -1104,6 +1225,7 @@ mod tests {
             name: "name".to_string(),
             symbol: "symbol".to_string(),
             minter: Some(minter.to_string()),
+            default_uri: None,
         };
         let res = contract
             .instantiate(
@@ -1282,7 +1404,7 @@ mod tests {
                 },
             ),
             to_json_binary(&TokenInfoResponse::<Option<Empty>> {
-                token_uri: None,
+                token_uri: "".to_string(),
                 extension: None,
             }),
         );
@@ -1352,6 +1474,7 @@ mod tests {
             name: "name".to_string(),
             symbol: "symbol".to_string(),
             minter: Some(minter.to_string()),
+            default_uri: None,
         };
         let res = contract
             .instantiate(
@@ -1471,6 +1594,7 @@ mod tests {
             name: "name".to_string(),
             symbol: "symbol".to_string(),
             minter: Some(minter.to_string()),
+            default_uri: None,
         };
         let res = contract
             .instantiate(
@@ -1553,98 +1677,197 @@ mod tests {
 
     #[test]
     fn token_uri() {
-        let contract = Cw1155BaseContract::default();
-        let minter = String::from("minter");
-        let user1 = String::from("user1");
+        let mut suite = setup(None);
+        let AddressBook { user1, .. } = suite.address_book.clone();
+
         let token1 = "token1".to_owned();
+        let token2 = "token2".to_owned();
+        let token3 = "token3".to_string();
         let url1 = "url1".to_owned();
         let url2 = "url2".to_owned();
+        let base_uri = "base_uri/".to_owned();
 
-        let mut deps = mock_dependencies();
-        let msg = Cw1155InstantiateMsg {
-            name: "name".to_string(),
-            symbol: "symbol".to_string(),
-            minter: Some(minter.to_string()),
-        };
-        let res = contract
-            .instantiate(
-                deps.as_mut(),
-                mock_env(),
-                mock_info("operator", &[]),
-                msg,
-                "contract_name",
-                "contract_version",
-            )
-            .unwrap();
-        assert_eq!(0, res.messages.len());
-
-        // first mint
-        contract
-            .execute(
-                deps.as_mut(),
-                mock_env(),
-                mock_info(minter.as_ref(), &[]),
-                Cw1155BaseExecuteMsg::Mint {
-                    recipient: user1.clone(),
-                    msg: Cw1155MintMsg {
-                        token_id: token1.clone(),
-                        amount: 1u64.into(),
-                        token_uri: Some(url1.clone()),
-                        extension: None,
-                    },
-                },
-            )
-            .unwrap();
-
+        // vrify base uri is not set
         assert_eq!(
-            contract.query(
-                deps.as_ref(),
-                mock_env(),
-                Cw1155QueryMsg::TokenInfo {
-                    token_id: token1.clone()
-                },
-            ),
-            to_json_binary(&TokenInfoResponse::<Option<Empty>> {
-                token_uri: Some(url1.clone()),
-                extension: None,
-            })
+            suite.query_default_uri(),
+            DefaultBaseUriResponse {
+                uri: "".to_string()
+            }
         );
 
-        // mint after the first mint
-        contract
-            .execute(
-                deps.as_mut(),
-                mock_env(),
-                mock_info(minter.as_ref(), &[]),
-                Cw1155BaseExecuteMsg::Mint {
-                    recipient: user1,
-                    msg: Cw1155MintMsg {
-                        token_id: token1.clone(),
-                        amount: 1u64.into(),
-                        token_uri: Some(url2),
-                        extension: None,
-                    },
-                },
-            )
-            .unwrap();
+        // mint without token uri (should pass, would end up with no token uri set)
+        suite.mint(None, &user1, &token1, 1, None, None);
 
-        // url doesn't changed
+        // verify token uri is none
         assert_eq!(
-            contract.query(
-                deps.as_ref(),
-                mock_env(),
-                Cw1155QueryMsg::TokenInfo { token_id: token1 },
-            ),
-            to_json_binary(&TokenInfoResponse::<Option<Empty>> {
-                token_uri: Some(url1),
+            suite.query_token_info(&token1),
+            TokenInfoResponse::<String> {
+                token_uri: "".to_string(),
                 extension: None,
-            })
+            }
+        );
+
+        // mint with token uri
+        suite.mint(None, &user1, &token2, 1, Some(url1.to_string()), None);
+
+        assert_eq!(
+            suite.query_token_info(&token2),
+            TokenInfoResponse::<String> {
+                token_uri: url1.clone(),
+                extension: None,
+            }
+        );
+
+        // mint again without token uri (should use metadata from previous mint)
+        suite.mint(None, &user1, &token2, 1, None, None);
+
+        // verify token uri is still the same
+        assert_eq!(
+            suite.query_token_info(&token2),
+            TokenInfoResponse::<String> {
+                token_uri: url1.clone(),
+                extension: None,
+            }
+        );
+
+        // update base uri
+        suite.update_default_uri(Some(base_uri.to_string()), None);
+
+        // verify base uri is set
+        assert_eq!(
+            suite.query_default_uri(),
+            DefaultBaseUriResponse {
+                uri: base_uri.clone()
+            }
+        );
+
+        // verify previous token uri still has the old url
+        assert_eq!(
+            suite.query_token_info(&token2),
+            TokenInfoResponse::<String> {
+                token_uri: url1.clone(),
+                extension: None,
+            }
+        );
+
+        // verify token 1 now uses base uri
+        assert_eq!(
+            suite.query_token_info(&token1),
+            TokenInfoResponse::<String> {
+                token_uri: format!("{}{}", base_uri, token1),
+                extension: None,
+            }
+        );
+
+        // mint without token uri (should use base uri)
+        suite.mint(None, &user1, &token3, 1, None, None);
+
+        // url should be base uri + token id
+        assert_eq!(
+            suite.query_token_info(&token3),
+            TokenInfoResponse::<String> {
+                token_uri: format!("{}{}", base_uri, token3),
+                extension: None,
+            }
+        );
+
+        // mint again with token uri (should be ignored, should use previous minted metadata)
+        suite.mint(None, &user1, &token3, 1, Some(url2.to_string()), None);
+
+        // verify token uri is still the same
+        assert_eq!(
+            suite.query_token_info(&token3),
+            TokenInfoResponse::<String> {
+                token_uri: format!("{}{}", base_uri, token3),
+                extension: None,
+            }
+        );
+
+        // update token uri for token3
+        suite.update_token_metadata(&token3, Some(url2.to_string()), None, None);
+
+        // verify token uri is updated
+        assert_eq!(
+            suite.query_token_info(&token3),
+            TokenInfoResponse::<String> {
+                token_uri: url2.clone(),
+                extension: None,
+            }
+        );
+
+        // remove token uri for token3
+        suite.update_token_metadata(&token3, None, None, None);
+
+        // verify token uri resolves to default again
+        assert_eq!(
+            suite.query_token_info(&token3),
+            TokenInfoResponse::<String> {
+                token_uri: format!("{}{}", base_uri, token3),
+                extension: None,
+            }
+        );
+
+        // remove base uri
+        suite.update_default_uri(None, None);
+
+        // verify token uri is none for token3
+        assert_eq!(
+            suite.query_token_info(&token3),
+            TokenInfoResponse::<String> {
+                token_uri: "".to_string(),
+                extension: None,
+            }
+        );
+
+        // update token uris in batch
+        suite.update_token_metadata_batch(
+            vec![
+                TokenUpdate {
+                    token_id: token1.clone(),
+                    token_uri: Some(url2.to_string()),
+                    metadata: None,
+                },
+                TokenUpdate {
+                    token_id: token2.clone(),
+                    token_uri: None,
+                    metadata: None,
+                },
+                TokenUpdate {
+                    token_id: token3.clone(),
+                    token_uri: Some(url2.clone()),
+                    metadata: None,
+                },
+            ],
+            None,
+        );
+
+        // verify token uris are updated
+        assert_eq!(
+            suite.query_token_info(&token1),
+            TokenInfoResponse::<String> {
+                token_uri: url2.clone(),
+                extension: None,
+            }
+        );
+        assert_eq!(
+            suite.query_token_info(&token2),
+            TokenInfoResponse::<String> {
+                token_uri: "".to_string(),
+                extension: None,
+            }
+        );
+        assert_eq!(
+            suite.query_token_info(&token3),
+            TokenInfoResponse::<String> {
+                token_uri: url2.clone(),
+                extension: None,
+            }
         );
     }
 
     #[test]
     fn check_token_approvals() {
-        let mut suite = setup();
+        let mut suite = setup(None);
         let AddressBook {
             user1,
             user2,
@@ -1655,7 +1878,7 @@ mod tests {
         let token_id = "1";
 
         // mint tokens to user 1
-        suite.mint(None, &user1, token_id, 10u64, None);
+        suite.mint(None, &user1, token_id, 10u64, None, None);
 
         // verify balance of owner 1
         assert_eq!(

@@ -194,12 +194,18 @@ pub trait Cw1155Query<
                         config
                             .default_base_uri
                             .load(deps.storage)
-                            .map(|base_uri| format!("{}{}", base_uri.unwrap_or_default(), token_id))
+                            .map(|base_uri| {
+                                if let Some(base_uri) = base_uri {
+                                    format!("{}{}", base_uri, token_id)
+                                } else {
+                                    "".to_string()
+                                }
+                            })
                             .ok()
                     })
                     .unwrap_or_default();
                 to_json_binary(&TokenInfoResponse::<TMetadataExtension> {
-                    token_uri: Some(token_uri),
+                    token_uri,
                     extension: token_info.extension,
                 })
             }

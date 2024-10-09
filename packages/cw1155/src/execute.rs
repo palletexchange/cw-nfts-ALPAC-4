@@ -73,6 +73,11 @@ pub trait Cw1155Execute<
         // store total supply
         config.supply.save(deps.storage, &Uint128::zero())?;
 
+        // store default base uri
+        config
+            .default_base_uri
+            .save(deps.storage, &msg.default_uri)?;
+
         Ok(Response::default().add_attribute("minter", minter))
     }
 
@@ -900,7 +905,7 @@ pub trait Cw1155Execute<
         cw_ownable::assert_owner(deps.storage, &info.sender)?;
 
         if updates.is_empty() {
-            return Err(Cw1155ContractError::NoUpdatesRequested {});
+            return Err(Cw1155ContractError::EmptyUpdateRequest {});
         }
 
         let config = Cw1155Config::<
@@ -918,13 +923,11 @@ pub trait Cw1155Execute<
                      token_uri,
                      metadata,
                  }| {
+                    let token_info = config.tokens.load(deps.storage, &token_id)?;
                     let (token_id, token_info) = config.update_token_metadata(
                         deps.storage,
                         &token_id,
-                        TokenInfo {
-                            token_uri: token_uri.clone(),
-                            extension: metadata.clone(),
-                        },
+                        token_info,
                         token_uri,
                         metadata.clone(),
                     )?;
